@@ -1,7 +1,6 @@
 package de.weingardt.mylyn.gitlab.core;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,160 +15,176 @@ import de.weingardt.mylyn.gitlab.core.exceptions.GitlabExceptionHandler;
 import de.weingardt.mylyn.gitlab.core.exceptions.UnknownProjectException;
 
 /**
- * The ConnectionManager is a singleton that handles all
- * GitlabConnection instances in a HashMap. The key in this HashMap
- * is the URL to the Gitlab instance constructed using a TaskRepository
+ * The ConnectionManager is a singleton that handles all GitlabConnection instances in a HashMap.
+ * The key in this HashMap is the URL to the Gitlab instance constructed using a TaskRepository
  * class.
- * @author paul
  *
+ * @author paul
  */
 public class ConnectionManager {
 
-	/**
-	 * The HashMap used to store all GitlabConnections
-	 */
-	private static HashMap<String, GitlabConnection> connections = new HashMap<String, GitlabConnection>();
+  /**
+   * The HashMap used to store all GitlabConnections
+   */
+  private static HashMap<String, GitlabConnection> connections =
+      new HashMap<>();
 
-	/**
-	 * The pattern is used to verify a ULR to a valid Gitlab project URL.
-	 */
-	private static Pattern URLPattern = Pattern.compile("((?:http|https)://(?:[^\\/]*))/((?:.*?)/(?:[^\\/]*?))$");
+  /**
+   * The pattern is used to verify a ULR to a valid Gitlab project URL.
+   */
+  private static Pattern URLPattern =
+      Pattern.compile("((?:http|https)://(?:[^\\/]*))/((?:.*?)/(?:[^\\/]*?))$");
 
-	/**
-	 * Returns the GitlabConnection for the given task repository
-	 * @param repository
-	 * @return
-	 * @throws GitlabException
-	 */
-	static public GitlabConnection get(TaskRepository repository) throws GitlabException {
-		return get(repository, false);
-	}
+  /**
+   * Constructs a URL string for the given task repository.
+   *
+   * @param repository
+   * @return
+   */
+  private static String constructURL(TaskRepository repository) {
+    final String username =
+        repository.getCredentials(AuthenticationType.REPOSITORY).getUserName();
+    final String password =
+        repository.getCredentials(AuthenticationType.REPOSITORY).getPassword();
+    return repository.getUrl() + "?username=" + username + "&password=" + password.hashCode();
+  }
 
-	/**
-	 * Returns the GitlabConnection for the given task repository. If it
-	 * failes for whatever reason, it returns null.
-	 * @param repository
-	 * @return
-	 */
-	static public GitlabConnection getSafe(TaskRepository repository) {
-		try {
-			return get(repository);
-		} catch (GitlabException e) {
-			return null;
-		}
-	}
+  /**
+   * Returns the GitlabConnection for the given task repository
+   *
+   * @param repository
+   * @return
+   * @throws GitlabException
+   */
+  static public GitlabConnection get(TaskRepository repository) throws GitlabException {
+    return get(repository, false);
+  }
 
-	/**
-	 * Constructs a URL string for the given task repository.
-	 * @param repository
-	 * @return
-	 */
-	private static String constructURL(TaskRepository repository) {
-		String username = repository.getCredentials(AuthenticationType.REPOSITORY).getUserName();
-		String password = repository.getCredentials(AuthenticationType.REPOSITORY).getPassword();
-		return repository.getUrl() + "?username=" + username + "&password=" + password.hashCode();
-	}
+  /**
+   * Returns a *valid* GitlabConnection, otherwise this method throws an exception.
+   *
+   * @param repository
+   * @param forceUpdate if true, a new GitlabConnection instance will be created, even if a Gitlab
+   *        Connection already exists for the given task repository
+   * @return
+   * @throws GitlabException
+   */
+  static GitlabConnection get(TaskRepository repository, boolean forceUpdate)
+      throws GitlabException {
+    try {
+      final String hash = constructURL(repository);
+      if (connections.containsKey(hash) && !forceUpdate) {
+        return connections.get(hash);
+      } else {
+        final GitlabConnection connection = validate(repository);
 
-	/**
-	 * Validates the given task repository and returns a GitlabConnection if
-	 * the task repository is a valid repository.
-	 * @param repository
-	 * @return
-	 * @throws GitlabException
-	 */
-	static GitlabConnection validate(TaskRepository repository) throws GitlabException {
-		try {
-			String projectPath = null;
-			String host = null;
+        connections.put(hash, connection);
+        connection.update();
 
-			if(repository.getProperty("gitlabBaseUrl").trim().length() > 0) {
-				host = repository.getProperty("gitlabBaseUrl").trim();
-				if(!repository.getUrl().startsWith(host)) {
-					throw new GitlabException("Invalid project URL!");
-				}
+        return connection;
+      }
+    } catch (final GitlabException e) {
+      throw e;
+    } catch (final Exception e) {
+      throw GitlabExceptionHandler.handle(e);
+    } catch (final Error e) {
+      throw GitlabExceptionHandler.handle(e);
+    }
+  }
 
-				projectPath = repository.getUrl().replaceFirst(Matcher.quoteReplacement(host), "");
-				if(projectPath.startsWith("/")) {
-					projectPath = projectPath.substring(1);
-				}
-			} else {
-				Matcher matcher = URLPattern.matcher(repository.getUrl());
-				if(!matcher.find()) {
-					throw new GitlabException("Invalid Project-URL!");
-				}
+  /**
+   * Returns the GitlabConnection for the given task repository. If it failes for whatever reason,
+   * it returns null.
+   *
+   * @param repository
+   * @return
+   */
+  static public GitlabConnection getSafe(TaskRepository repository) {
+    try {
+      return get(repository);
+    } catch (final GitlabException e) {
+      return null;
+    }
+  }
 
-				projectPath = matcher.group(2);
-				host = matcher.group(1);
-			}
+  /**
+   * Validates the given task repository and returns a GitlabConnection if the task repository is a
+   * valid repository.
+   *
+   * @param repository
+   * @return
+   * @throws GitlabException
+   */
+  static GitlabConnection validate(TaskRepository repository) throws GitlabException {
+    try {
+      String projectPath = null;
+      String host = null;
 
-			String username = repository.getCredentials(AuthenticationType.REPOSITORY).getUserName();
-			String password= repository.getCredentials(AuthenticationType.REPOSITORY).getPassword();
+      if (repository.getProperty("gitlabBaseUrl").trim().length() > 0) {
+        host = repository.getProperty("gitlabBaseUrl").trim();
+        if (!repository.getUrl().startsWith(host)) {
+          throw new GitlabException("Invalid project URL!");
+        }
 
-			GitlabSession session = null;
-			String token = null;
+        projectPath = repository.getUrl().replaceFirst(Matcher.quoteReplacement(host), "");
+        if (projectPath.startsWith("/")) {
+          projectPath = projectPath.substring(1);
+        }
+      } else {
+        final Matcher matcher = URLPattern.matcher(repository.getUrl());
+        if (!matcher.find()) {
+          throw new GitlabException("Invalid Project-URL!");
+        }
 
-			if(repository.getProperty("usePrivateToken") != null && repository.getProperty("usePrivateToken").equals("true")) {
-				session = GitlabAPI.connect(host,  password).getCurrentSession();
-				token = password;
-			} else {
-				session = GitlabAPI.connect(host, username, password);
-				token = session.getPrivateToken();
-			}
+        projectPath = matcher.group(2);
+        host = matcher.group(1);
+      }
 
-			GitlabAPI api = GitlabAPI.connect(host, token);
+      final String username =
+          repository.getCredentials(AuthenticationType.REPOSITORY).getUserName();
+      final String password =
+          repository.getCredentials(AuthenticationType.REPOSITORY).getPassword();
 
-			if(projectPath.endsWith(".git")) {
-				projectPath = projectPath.substring(0, projectPath.length() - 4);
-			}
+      GitlabSession session = null;
+      String token = null;
 
-			List<GitlabProject> projects = api.getProjects();
-			for(GitlabProject p : projects) {
-				if(p.getPathWithNamespace().equals(projectPath)) {
-					GitlabConnection connection = new GitlabConnection(host, p, token,
-							new GitlabAttributeMapper(repository));
-					return connection;
-				}
-			}
-			// At this point the authentication was successful, but the corresponding project
-			// could not be found!
-			throw new UnknownProjectException(projectPath);
-		} catch(GitlabException e) {
-			throw e;
-		} catch(Exception e) {
-			throw GitlabExceptionHandler.handle(e);
-		} catch(Error e) {
-			throw GitlabExceptionHandler.handle(e);
-		}
-	}
+      if (repository.getProperty("usePrivateToken") != null
+          && repository.getProperty("usePrivateToken").equals("true")) {
+        session = GitlabAPI.connect(host, password).getCurrentSession();
+        token = password;
+      } else {
+        session = GitlabAPI.connect(host, username, password);
+        token = session.getPrivateToken();
+      }
 
-	/**
-	 * Returns a *valid* GitlabConnection, otherwise this method throws an exception.
-	 * @param repository
-	 * @param forceUpdate if true, a new GitlabConnection instance will be created, even if a Gitlab
-	 * 	Connection already exists for the given task repository
-	 * @return
-	 * @throws GitlabException
-	 */
-	static GitlabConnection get(TaskRepository repository, boolean forceUpdate) throws GitlabException {
-		try {
-			String hash = constructURL(repository);
-			if(connections.containsKey(hash) && !forceUpdate) {
-				return connections.get(hash);
-			} else {
-				GitlabConnection connection = validate(repository);
+      final GitlabAPI api = GitlabAPI.connect(host, token);
 
-				connections.put(hash, connection);
-				connection.update();
+      if (projectPath.endsWith(".git")) {
+        projectPath = projectPath.substring(0, projectPath.length() - 4);
+      }
 
-				return connection;
-			}
-		} catch(GitlabException e) {
-			throw e;
-		} catch(Exception e) {
-			throw GitlabExceptionHandler.handle(e);
-		} catch(Error e) {
-			throw GitlabExceptionHandler.handle(e);
-		}
-	}
+      final int projectSeparatorIdx = projectPath.lastIndexOf('/');
+      final String namespace = projectPath.substring(0, projectSeparatorIdx);
+      final String projectName = projectPath.substring(projectSeparatorIdx + 1);
+
+      final GitlabProject project = api.getProject(namespace, projectName);
+
+      if (null != project) {
+        final GitlabConnection connection = new GitlabConnection(host, project, token,
+            new GitlabAttributeMapper(repository));
+        return connection;
+      }
+
+      // At this point the authentication was successful, but the corresponding project
+      // could not be found!
+      throw new UnknownProjectException(projectPath);
+    } catch (final GitlabException e) {
+      throw e;
+    } catch (final Exception e) {
+      throw GitlabExceptionHandler.handle(e);
+    } catch (final Error e) {
+      throw GitlabExceptionHandler.handle(e);
+    }
+  }
 
 }
