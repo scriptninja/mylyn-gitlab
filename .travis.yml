@@ -3,9 +3,11 @@ jdk:
   - oraclejdk8
 
 before_script:
-  - git clone https://github.com/timols/java-gitlab-api.git
+  - echo 'checking out dependency'
+  - git clone git@github.com/timols/java-gitlab-api.git
   - cd java-gitlab-api
   - mvn clean verify
+  - stat target/java-gitlab-api-4.0.1-SNAPSHOT.jar
   - cp target/java-gitlab-api-4.0.1-SNAPSHOT.jar ../de.weingardt.mylyn.gitlab.core/lib/
   - cd ..
 
